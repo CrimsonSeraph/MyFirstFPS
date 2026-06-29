@@ -2,13 +2,28 @@
 #include "Kismet/GameplayStatics.h"
 #include "Components/StaticMeshComponent.h"
 #include "Components/SkeletalMeshComponent.h"
+#include "Engine/StreamableManager.h"
+#include "Engine/AssetManager.h"
+#include "UObject/SoftObjectPath.h"
 #include "Weapon/FireEffect.h"
 
 // 全局缓存
-static TMap<TWeakObjectPtr<AActor>, TMap<UStaticMesh*, TWeakObjectPtr<UStaticMeshComponent>>> GStaticMeshCache;
+static TMap<TWeakObjectPtr<AActor>, TMap<FSoftObjectPath, TWeakObjectPtr<UStaticMeshComponent>>> GStaticMeshCache;
 
 // 处理数组
 void UWeaponFunctionLibrary::ExecuteFireEffects(AActor* TargetActor, const TArray<FFireEffectConfig>& ConfigArray)
+{
+    ExecuteFireEffectsWithLife(TargetActor, ConfigArray, 0.0f);
+}
+
+// 处理单个配置
+void UWeaponFunctionLibrary::ExecuteFireEffect(AActor* TargetActor, const FFireEffectConfig& Config)
+{
+    ExecuteFireEffectWithLife(TargetActor, Config, 0.0f);
+}
+
+// 处理数组并设置生命周期
+void UWeaponFunctionLibrary::ExecuteFireEffectsWithLife(AActor* TargetActor, const TArray<FFireEffectConfig>& ConfigArray, float LifeSpan)
 {
     if (!TargetActor) return;
 
@@ -24,12 +39,12 @@ void UWeaponFunctionLibrary::ExecuteFireEffects(AActor* TargetActor, const TArra
     // 遍历数组，逐个执行
     for (const FFireEffectConfig& Config : ConfigArray)
     {
-        ExecuteSingleEffect(TargetActor, Config);
+        ExecuteSingleEffect(TargetActor, Config, LifeSpan);
     }
 }
 
-// 处理单个配置
-void UWeaponFunctionLibrary::ExecuteFireEffect(AActor* TargetActor, const FFireEffectConfig& Config)
+// 处理单个配置并设置生命周期
+void UWeaponFunctionLibrary::ExecuteFireEffectWithLife(AActor* TargetActor, const FFireEffectConfig& Config, float LifeSpan)
 {
     if (!TargetActor) return;
 
@@ -42,22 +57,24 @@ void UWeaponFunctionLibrary::ExecuteFireEffect(AActor* TargetActor, const FFireE
         }
     }
 
-    ExecuteSingleEffect(TargetActor, Config);
+    ExecuteSingleEffect(TargetActor, Config, LifeSpan);
 }
 
 // 内部核心实现
-void UWeaponFunctionLibrary::ExecuteSingleEffect(AActor* TargetActor, const FFireEffectConfig& Config)
+void UWeaponFunctionLibrary::ExecuteSingleEffect(AActor* TargetActor, const FFireEffectConfig& Config, float LifeSpan)
 {
     USceneComponent* FoundComp = nullptr;
 
-    // 查缓存
+    // 查缓存（静态网格）
     if (Config.StaticMesh)
     {
-        // 尝试找当前 Actor 的缓存
-        TMap<UStaticMesh*, TWeakObjectPtr<UStaticMeshComponent>>* ActorCache = GStaticMeshCache.Find(TargetActor);
+        FSoftObjectPath MeshPath = Config.StaticMesh.ToSoftObjectPath();
+
+        // 获取当前 Actor 的缓存 Map
+        TMap<FSoftObjectPath, TWeakObjectPtr<UStaticMeshComponent>>* ActorCache = GStaticMeshCache.Find(TargetActor);
         if (ActorCache)
         {
-            if (TWeakObjectPtr<UStaticMeshComponent>* CachedCompPtr = ActorCache->Find(Config.StaticMesh))
+            if (TWeakObjectPtr<UStaticMeshComponent>* CachedCompPtr = ActorCache->Find(MeshPath))
             {
                 FoundComp = CachedCompPtr->Get();
             }
@@ -70,10 +87,10 @@ void UWeaponFunctionLibrary::ExecuteSingleEffect(AActor* TargetActor, const FFir
             TargetActor->GetComponents<UStaticMeshComponent>(SMComps);
             for (UStaticMeshComponent* SMC : SMComps)
             {
-                if (SMC->GetStaticMesh() == Config.StaticMesh)
+                if (SMC->GetStaticMesh() == Config.StaticMesh.Get())    // 比较原始指针
                 {
                     FoundComp = SMC;
-                    GStaticMeshCache.FindOrAdd(TargetActor).Add(Config.StaticMesh, SMC);
+                    GStaticMeshCache.FindOrAdd(TargetActor).Add(MeshPath, SMC);
                     break;
                 }
             }
@@ -95,17 +112,43 @@ void UWeaponFunctionLibrary::ExecuteSingleEffect(AActor* TargetActor, const FFir
 
         if (Config.Actor)
         {
-            TargetActor->GetWorld()->SpawnActor<AActor>(Config.Actor, SpawnTransform);
+            AActor* SpawnedActor = TargetActor->GetWorld()->SpawnActor<AActor>(Config.Actor.Get(), SpawnTransform);
+            if (SpawnedActor && LifeSpan > 0.0f)
+            {
+                SpawnedActor->SetLifeSpan(LifeSpan);
+            }
         }
 
         if (Config.Effect)
         {
             UNiagaraFunctionLibrary::SpawnSystemAtLocation(
                 TargetActor->GetWorld(),
-                Config.Effect,
+                Config.Effect.Get(),
                 SpawnTransform.GetLocation(),
                 SpawnTransform.Rotator()
             );
         }
     }
+}
+
+void UWeaponFunctionLibrary::PreloadFireEffects(const TArray<FFireEffectConfig>& ConfigArray)
+{
+    TArray<FSoftObjectPath> AssetsToLoad;
+    for (const FFireEffectConfig& Config : ConfigArray)
+    {
+        if (!Config.StaticMesh.IsNull())
+            AssetsToLoad.Add(Config.StaticMesh.ToSoftObjectPath());
+        if (!Config.Effect.IsNull())
+            AssetsToLoad.Add(Config.Effect.ToSoftObjectPath());
+        if (!Config.Actor.IsNull())
+            AssetsToLoad.Add(Config.Actor.ToSoftObjectPath());
+    }
+
+    if (AssetsToLoad.Num() == 0) return;
+
+    FStreamableManager& StreamableManager = UAssetManager::GetStreamableManager();
+    StreamableManager.RequestAsyncLoad(AssetsToLoad, FStreamableDelegate::CreateLambda([]()
+    {
+        // 加载完成后的处理内容
+    }));
 }
