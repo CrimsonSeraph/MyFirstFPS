@@ -1,38 +1,21 @@
 #include "SettingUI/USettingFunction.h"
+
 #include "GameFramework/GameUserSettings.h"
 #include "HAL/IConsoleManager.h"
 #include "Math/UnrealMathUtility.h"
 
-void USettingFunction::ApplySettingByIndex(ESettingType Setting, int32 Index,
-                                           const TArray<FIntPoint> &ResList) {
+// ========== 无列表整数 ==========
+void USettingFunction::ApplySettingByIndex(ESettingType Setting, int32 Index) {
   UGameUserSettings *GSettings = UGameUserSettings::GetGameUserSettings();
   if (!GSettings)
-    return;
-
-  if (Setting == ESettingType::Resolution && !ResList.IsValidIndex(Index))
     return;
 
   switch (Setting) {
   // 显示设置
   case ESettingType::ScreenMode:
-    // 0: Fullscreen, 1: WindowedFullscreen, 2: Windowed
+    // 硬编码：0=全屏, 1=窗口全屏, 2=窗口
     GSettings->SetFullscreenMode(static_cast<EWindowMode::Type>(Index));
     break;
-
-  case ESettingType::Resolution:
-    if (ResList.IsValidIndex(Index))
-      GSettings->SetScreenResolution(ResList[Index]);
-    break;
-
-  case ESettingType::FrameRate: {
-    // 预设帧率列表
-    // 30FPS, 60FPS, 120FPS, 144FPS, 0FPS（无限制）
-    const float FPSValues[] = {30.f, 60.f, 120.f, 144.f, 0.f};
-    const int32 ArraySize = sizeof(FPSValues) / sizeof(FPSValues[0]);
-    if (Index >= 0 && Index < ArraySize)
-      GSettings->SetFrameRateLimit(FPSValues[Index]);
-    break;
-  }
 
   case ESettingType::VerticalSynchronization:
     GSettings->SetVSyncEnabled(Index > 0);
@@ -42,11 +25,7 @@ void USettingFunction::ApplySettingByIndex(ESettingType Setting, int32 Index,
     GSettings->SetViewDistanceQuality(Index);
     break;
 
-  // 画质设置
-  case ESettingType::ResolutionScaler:
-    // 不处理浮点类设置
-    break;
-
+    // 画质设置
   case ESettingType::AntiAliasing:
     ApplyAntiAliasingMethodInternal(Index);
     break;
@@ -87,41 +66,27 @@ void USettingFunction::ApplySettingByIndex(ESettingType Setting, int32 Index,
     GSettings->SetShadingQuality(Index);
     break;
 
+  // 不处理列表的设置类型
+  case ESettingType::Resolution:
+  case ESettingType::FrameRate:
+  case ESettingType::ResolutionScaler:
+
   default:
-    break;
+    return;
   }
 
   GSettings->ApplySettings(false);
 }
 
-int32 USettingFunction::GetCurrentSettingIndex(
-    ESettingType Setting, const TArray<FIntPoint> &ResList) {
+int32 USettingFunction::GetCurrentSettingIndex(ESettingType Setting) {
   UGameUserSettings *GSettings = UGameUserSettings::GetGameUserSettings();
   if (!GSettings)
     return 0;
 
-  if (Setting == ESettingType::Resolution && !ResList.IsValidIndex(0))
-    return 0;
-
   switch (Setting) {
+  // 显示设置
   case ESettingType::ScreenMode:
     return static_cast<int32>(GSettings->GetFullscreenMode());
-
-  case ESettingType::Resolution: {
-    int32 FoundIdx = ResList.Find(GSettings->GetScreenResolution());
-    return (FoundIdx != INDEX_NONE) ? FoundIdx : 0;
-  }
-
-  case ESettingType::FrameRate: {
-    const float FPSValues[] = {30.f, 60.f, 120.f, 144.f, 0.f};
-    const int32 ArraySize = sizeof(FPSValues) / sizeof(FPSValues[0]);
-    float CurrentFPS = GSettings->GetFrameRateLimit();
-    for (int32 i = 0; i < ArraySize; ++i) {
-      if (FMath::IsNearlyEqual(FPSValues[i], CurrentFPS, 0.01f))
-        return i;
-    }
-    return 0; // 默认
-  }
 
   case ESettingType::VerticalSynchronization:
     return GSettings->IsVSyncEnabled() ? 1 : 0;
@@ -129,10 +94,7 @@ int32 USettingFunction::GetCurrentSettingIndex(
   case ESettingType::ViewDistanceQuality:
     return GSettings->GetViewDistanceQuality();
 
-  case ESettingType::ResolutionScaler:
-    // 不处理浮点类设置
-    return 0;
-
+    // 画质设置
   case ESettingType::AntiAliasing:
     return GetAntiAliasingMethodIndexInternal();
 
@@ -168,64 +130,171 @@ int32 USettingFunction::GetCurrentSettingIndex(
   }
 }
 
+// 无列表浮点
 void USettingFunction::ApplySettingByFloat(ESettingType SettingType,
                                            float Value) {
   UGameUserSettings *GSettings = UGameUserSettings::GetGameUserSettings();
   if (!GSettings)
     return;
 
-  switch (SettingType) {
-  case ESettingType::ResolutionScaler:
-    float ClampedValue = FMath::Clamp(Value, 10.0f, 100.0f);
-    float NormalizedValue = ClampedValue / 100.0f;
-    GSettings->SetResolutionScaleNormalized(NormalizedValue);
-    break;
+  if (SettingType == ESettingType::ResolutionScaler) {
+    float Clamped = FMath::Clamp(Value, 10.0f, 100.0f);
+    GSettings->SetResolutionScaleNormalized(Clamped / 100.0f);
+    GSettings->ApplySettings(false);
   }
 }
 
 float USettingFunction::GetCurrentSettingFloat(ESettingType SettingType) {
   UGameUserSettings *GSettings = UGameUserSettings::GetGameUserSettings();
   if (!GSettings)
+    return 0.0f;
+
+  if (SettingType == ESettingType::ResolutionScaler) {
+    float Normalized = GSettings->GetResolutionScaleNormalized();
+    return FMath::RoundToFloat(Normalized * 100.0f);
+  }
+  return 0.0f;
+}
+
+// 带整数列表
+void USettingFunction::ApplySettingByIndexWithIntList(
+    ESettingType Setting, int32 Index, const TArray<int32> &IntList) {
+  if (!IntList.IsValidIndex(Index))
+    return;
+  UGameUserSettings *GSettings = UGameUserSettings::GetGameUserSettings();
+  if (!GSettings)
+    return;
+
+  switch (Setting) {
+  case ESettingType::FrameRate:
+    GSettings->SetFrameRateLimit(static_cast<float>(IntList[Index]));
+    break;
+  default:
+    // 不需要列表的设置，转调无列表整数函数
+    ApplySettingByIndex(Setting, Index);
+    return; // 避免重复 ApplySettings
+  }
+
+  GSettings->ApplySettings(false);
+}
+
+int32 USettingFunction::GetCurrentSettingIndexWithIntList(
+    ESettingType Setting, const TArray<int32> &IntList) {
+  UGameUserSettings *GSettings = UGameUserSettings::GetGameUserSettings();
+  if (!GSettings)
     return 0;
 
-  float CurrentNormalized = 0.0f;
-  switch (SettingType) {
-  case ESettingType::ResolutionScaler:
-    CurrentNormalized = GSettings->GetResolutionScaleNormalized();
-    return FMath::RoundToFloat(CurrentNormalized * 100.0f);
-  default:
+  switch (Setting) {
+  case ESettingType::FrameRate: {
+    float CurrentFPS = GSettings->GetFrameRateLimit();
+    for (int32 i = 0; i < IntList.Num(); ++i) {
+      if (FMath::IsNearlyEqual(static_cast<float>(IntList[i]), CurrentFPS,
+                               0.01f))
+        return i;
+    }
     return 0;
+  }
+  default:
+    return GetCurrentSettingIndex(Setting);
   }
 }
 
+// 带浮点列表
+void USettingFunction::ApplySettingByIndexWithFloatList(
+    ESettingType Setting, int32 Index, const TArray<float> &FloatList) {
+  if (!FloatList.IsValidIndex(Index))
+    return;
+  UGameUserSettings *GSettings = UGameUserSettings::GetGameUserSettings();
+  if (!GSettings)
+    return;
+
+  switch (Setting) {
+  case ESettingType::FrameRate:
+    GSettings->SetFrameRateLimit(FloatList[Index]);
+    break;
+  default:
+    ApplySettingByIndex(Setting, Index);
+    return;
+  }
+
+  GSettings->ApplySettings(false);
+}
+
+int32 USettingFunction::GetCurrentSettingIndexWithFloatList(
+    ESettingType Setting, const TArray<float> &FloatList) {
+  UGameUserSettings *GSettings = UGameUserSettings::GetGameUserSettings();
+  if (!GSettings)
+    return 0;
+
+  switch (Setting) {
+  case ESettingType::FrameRate: {
+    float CurrentFPS = GSettings->GetFrameRateLimit();
+    for (int32 i = 0; i < FloatList.Num(); ++i) {
+      if (FMath::IsNearlyEqual(FloatList[i], CurrentFPS, 0.01f))
+        return i;
+    }
+    return 0;
+  }
+  default:
+    return GetCurrentSettingIndex(Setting);
+  }
+}
+
+// 带分辨率列表
+void USettingFunction::ApplySettingByIndexWithResolutionList(
+    ESettingType Setting, int32 Index, const TArray<FIntPoint> &ResList) {
+  if (Setting == ESettingType::Resolution) {
+    if (!ResList.IsValidIndex(Index))
+      return;
+
+    UGameUserSettings *GSettings = UGameUserSettings::GetGameUserSettings();
+    if (!GSettings)
+      return;
+
+    GSettings->SetScreenResolution(ResList[Index]);
+    GSettings->ApplySettings(false);
+  } else {
+    ApplySettingByIndex(Setting, Index);
+  }
+}
+
+int32 USettingFunction::GetCurrentSettingIndexResolutionList(
+    ESettingType Setting, const TArray<FIntPoint> &ResList) {
+  if (Setting == ESettingType::Resolution) {
+    UGameUserSettings *GSettings = UGameUserSettings::GetGameUserSettings();
+    if (!GSettings)
+      return 0;
+
+    int32 Found = ResList.Find(GSettings->GetScreenResolution());
+    return (Found != INDEX_NONE) ? Found : 0;
+  } else {
+    return GetCurrentSettingIndex(Setting);
+  }
+}
+
+// 内部抗锯齿辅助
 void USettingFunction::ApplyAntiAliasingMethodInternal(int32 MethodIndex) {
-  if (MethodIndex < 0 || MethodIndex >= AAMapSize) {
+  if (MethodIndex < 0 || MethodIndex >= AAMapSize)
     return;
-  }
 
-  IConsoleVariable *CVarAA =
+  IConsoleVariable *CVar =
       IConsoleManager::Get().FindConsoleVariable(TEXT("r.AntiAliasingMethod"));
-  if (!CVarAA) {
+  if (!CVar)
     return;
-  }
 
-  CVarAA->Set(AAMethodCVarMap[MethodIndex], ECVF_SetByGameSetting);
+  CVar->Set(AAMethodCVarMap[MethodIndex], ECVF_SetByGameSetting);
 }
 
 int32 USettingFunction::GetAntiAliasingMethodIndexInternal() {
-  IConsoleVariable *CVarAA =
+  IConsoleVariable *CVar =
       IConsoleManager::Get().FindConsoleVariable(TEXT("r.AntiAliasingMethod"));
-  if (!CVarAA) {
-    // 引擎初始化失败，默认返回索引 0 (TSR)
+  if (!CVar)
     return 0;
-  }
 
-  int32 CurrentValue = CVarAA->GetInt();
-
+  int32 Current = CVar->GetInt();
   for (int32 i = 0; i < AAMapSize; ++i) {
-    if (CurrentValue == AAMethodCVarMap[i]) {
+    if (Current == AAMethodCVarMap[i])
       return i;
-    }
   }
 
   // 如果当前值不在表中，默认返回 0
