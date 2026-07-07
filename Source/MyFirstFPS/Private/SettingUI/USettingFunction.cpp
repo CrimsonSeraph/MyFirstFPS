@@ -4,7 +4,7 @@
 #include "HAL/IConsoleManager.h"
 #include "Math/UnrealMathUtility.h"
 
-// ========== 无列表整数 ==========
+// 无列表整数
 void USettingFunction::ApplySettingByIndex(ESettingType Setting, int32 Index) {
   UGameUserSettings *GSettings = UGameUserSettings::GetGameUserSettings();
   if (!GSettings)
@@ -74,8 +74,6 @@ void USettingFunction::ApplySettingByIndex(ESettingType Setting, int32 Index) {
   default:
     return;
   }
-
-  GSettings->ApplySettings(false);
 }
 
 int32 USettingFunction::GetCurrentSettingIndex(ESettingType Setting) {
@@ -140,7 +138,6 @@ void USettingFunction::ApplySettingByFloat(ESettingType SettingType,
   if (SettingType == ESettingType::ResolutionScaler) {
     float Clamped = FMath::Clamp(Value, 10.0f, 100.0f);
     GSettings->SetResolutionScaleNormalized(Clamped / 100.0f);
-    GSettings->ApplySettings(false);
   }
 }
 
@@ -174,8 +171,6 @@ void USettingFunction::ApplySettingByIndexWithIntList(
     ApplySettingByIndex(Setting, Index);
     return; // 避免重复 ApplySettings
   }
-
-  GSettings->ApplySettings(false);
 }
 
 int32 USettingFunction::GetCurrentSettingIndexWithIntList(
@@ -216,8 +211,6 @@ void USettingFunction::ApplySettingByIndexWithFloatList(
     ApplySettingByIndex(Setting, Index);
     return;
   }
-
-  GSettings->ApplySettings(false);
 }
 
 int32 USettingFunction::GetCurrentSettingIndexWithFloatList(
@@ -252,7 +245,6 @@ void USettingFunction::ApplySettingByIndexWithResolutionList(
       return;
 
     GSettings->SetScreenResolution(ResList[Index]);
-    GSettings->ApplySettings(false);
   } else {
     ApplySettingByIndex(Setting, Index);
   }

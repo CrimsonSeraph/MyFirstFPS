@@ -8,14 +8,12 @@
 
 UENUM(BlueprintType)
 enum class ESettingType : uint8 {
-  // 显示设置
   ScreenMode,              // 屏幕模式（硬编码 0=全屏,1=窗口全屏,2=窗口）
   Resolution,              // 分辨率（需外部 FIntPoint 列表）
   FrameRate,               // 帧率限制（需外部浮点列表）
   VerticalSynchronization, // 垂直同步（0/1）
   ViewDistanceQuality,     // 视距质量
 
-  // 画质设置
   ResolutionScaler,          // 分辨率缩放（浮点值 0~100）
   AntiAliasing,              // 抗锯齿方法（索引）
   AntiAliasingQuality,       // 抗锯齿质量
@@ -27,6 +25,8 @@ enum class ESettingType : uint8 {
   ReflectionQuality,         // 反射质量
   FoliageQuality,            // 植物质量
   ShadingQuality,            // 着色质量
+
+  other // 其他未分类设置
 };
 
 UCLASS()
