@@ -11,96 +11,17 @@ UReloadComponent::UReloadComponent() {
   PrimaryComponentTick.bCanEverTick = false;
 }
 
-void UReloadComponent::BeginPlay() {
-  Super::BeginPlay();
-
-  if (!MagazineClass) {
-    UE_LOG(LogTemp, Error, TEXT("ReloadComponent: MagazineClass is not set!"));
-  } else {
-    InitPool(); // 生成初始池
-  }
-}
-
-void UReloadComponent::EndPlay(const EEndPlayReason::Type EndPlayReason) {
-  // 清理所有丢弃定时器
-  for (auto &Pair : DropTimerHandles) {
-    if (GetWorld() && Pair.Value.IsValid()) {
-      GetWorld()->GetTimerManager().ClearTimer(Pair.Value);
-    }
-  }
-  DropTimerHandles.Empty();
-
-  // 销毁池中所有弹匣
+void UReloadComponent::SetMagazineClassAndInitPool(
+    TSubclassOf<AMagazineActor> NewMagazineClass) {
+  MagazineClass = NewMagazineClass;
+  // 清空旧池
   for (AMagazineActor *Mag : MagazinePool) {
-    if (IsValid(Mag)) {
+    if (IsValid(Mag))
       Mag->Destroy();
-    }
   }
   MagazinePool.Empty();
-
-  CurrentHandMag = nullptr;
-
-  Super::EndPlay(EndPlayReason);
-}
-
-// 生成 PoolSize 个弹匣并全部停用（隐藏）
-void UReloadComponent::InitPool() {
-  if (!GetWorld() || !MagazineClass)
-    return;
-
-  for (int32 i = 0; i < PoolSize; ++i) {
-    FActorSpawnParameters SpawnParams;
-    SpawnParams.SpawnCollisionHandlingOverride =
-        ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
-    AMagazineActor *NewMag = GetWorld()->SpawnActor<AMagazineActor>(
-        MagazineClass, FVector::ZeroVector, FRotator::ZeroRotator, SpawnParams);
-    if (IsValid(NewMag)) {
-      NewMag->Deactivate();
-      MagazinePool.Add(NewMag);
-    }
-  }
-}
-
-// 从池中查找已停用的弹匣，如果无可用则动态生成一个
-AMagazineActor *UReloadComponent::GetMagFromPool() {
-  for (AMagazineActor *Mag : MagazinePool) {
-    if (IsValid(Mag) && Mag->IsHidden()) {
-      Mag->Activate();
-      return Mag;
-    }
-  }
-
-  // 池耗尽，即时生成（并加入池中）
-  UE_LOG(LogTemp, Warning,
-         TEXT("ReloadComponent: Pool exhausted, spawning new magazine."));
-  FActorSpawnParameters SpawnParams;
-  SpawnParams.SpawnCollisionHandlingOverride =
-      ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
-  AMagazineActor *NewMag = GetWorld()->SpawnActor<AMagazineActor>(
-      MagazineClass, FVector::ZeroVector, FRotator::ZeroRotator, SpawnParams);
-  if (IsValid(NewMag)) {
-    MagazinePool.Add(NewMag);
-  }
-  return NewMag;
-}
-
-// 将弹匣归还池中：停用、清理定时器、清除引用
-void UReloadComponent::ReturnMagToPool(AMagazineActor *Mag) {
-  if (!IsValid(Mag))
-    return;
-
-  Mag->Deactivate();
-
-  if (CurrentHandMag == Mag) {
-    CurrentHandMag = nullptr;
-  }
-
-  if (DropTimerHandles.Contains(Mag)) {
-    if (GetWorld()) {
-      GetWorld()->GetTimerManager().ClearTimer(DropTimerHandles[Mag]);
-    }
-    DropTimerHandles.Remove(Mag);
-  }
+  // 重新初始化
+  InitPool();
 }
 
 // 抓取新弹匣：先从池获取，然后附着到握持插槽，并记录为 CurrentHandMag
@@ -214,6 +135,99 @@ void UReloadComponent::DropCurrentMag() {
   }
 
   CurrentHandMag = nullptr;
+}
+
+// 从池中查找已停用的弹匣，如果无可用则动态生成一个
+AMagazineActor *UReloadComponent::GetMagFromPool() {
+  for (AMagazineActor *Mag : MagazinePool) {
+    if (IsValid(Mag) && Mag->IsHidden()) {
+      Mag->Activate();
+      return Mag;
+    }
+  }
+
+  // 池耗尽，即时生成（并加入池中）
+  UE_LOG(LogTemp, Warning,
+         TEXT("ReloadComponent: Pool exhausted, spawning new magazine."));
+  FActorSpawnParameters SpawnParams;
+  SpawnParams.SpawnCollisionHandlingOverride =
+      ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
+  AMagazineActor *NewMag = GetWorld()->SpawnActor<AMagazineActor>(
+      MagazineClass, FVector::ZeroVector, FRotator::ZeroRotator, SpawnParams);
+  if (IsValid(NewMag)) {
+    MagazinePool.Add(NewMag);
+  }
+  return NewMag;
+}
+
+void UReloadComponent::BeginPlay() {
+  Super::BeginPlay();
+
+  if (!MagazineClass) {
+    UE_LOG(LogTemp, Warning,
+           TEXT("ReloadComponent: MagazineClass is not set!"));
+  } else {
+    InitPool(); // 生成初始池
+  }
+}
+
+void UReloadComponent::EndPlay(const EEndPlayReason::Type EndPlayReason) {
+  // 清理所有丢弃定时器
+  for (auto &Pair : DropTimerHandles) {
+    if (GetWorld() && Pair.Value.IsValid()) {
+      GetWorld()->GetTimerManager().ClearTimer(Pair.Value);
+    }
+  }
+  DropTimerHandles.Empty();
+
+  // 销毁池中所有弹匣
+  for (AMagazineActor *Mag : MagazinePool) {
+    if (IsValid(Mag)) {
+      Mag->Destroy();
+    }
+  }
+  MagazinePool.Empty();
+
+  CurrentHandMag = nullptr;
+
+  Super::EndPlay(EndPlayReason);
+}
+
+// 生成 PoolSize 个弹匣并全部停用（隐藏）
+void UReloadComponent::InitPool() {
+  if (!GetWorld() || !MagazineClass)
+    return;
+
+  for (int32 i = 0; i < PoolSize; ++i) {
+    FActorSpawnParameters SpawnParams;
+    SpawnParams.SpawnCollisionHandlingOverride =
+        ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
+    AMagazineActor *NewMag = GetWorld()->SpawnActor<AMagazineActor>(
+        MagazineClass, FVector::ZeroVector, FRotator::ZeroRotator, SpawnParams);
+    if (IsValid(NewMag)) {
+      NewMag->Deactivate();
+      MagazinePool.Add(NewMag);
+    }
+  }
+}
+
+// 将弹匣归还池中：停用、清理定时器、清除引用
+void UReloadComponent::ReturnMagToPool(AMagazineActor *Mag) {
+  if (!IsValid(Mag))
+    return;
+
+  Mag->Deactivate();
+
+  if (CurrentHandMag == Mag) {
+    CurrentHandMag = nullptr;
+  }
+
+  if (DropTimerHandles.Contains(Mag)) {
+    if (GetWorld()) {
+      GetWorld()->GetTimerManager().ClearTimer(DropTimerHandles[Mag]);
+    }
+    DropTimerHandles.Remove(Mag);
+  }
 }
 
 // 定时器回调：回收弹匣到池中

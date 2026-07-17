@@ -30,9 +30,17 @@ public:
   UFUNCTION(BlueprintCallable, Category = "Physics")
   void EnablePhysics();
 
-  /// @brief 禁用物理模拟，仅保留查询碰撞，用于将弹匣固定到武器插槽
+  /// @brief 禁用物理模拟，关闭碰撞，用于将弹匣固定到武器插槽
   UFUNCTION(BlueprintCallable, Category = "Physics")
   void DisablePhysics();
+
+  /// @brief 禁用碰撞（彻底关闭碰撞），用于弹匣被拾取后避免阻挡玩家
+  UFUNCTION(BlueprintCallable, Category = "Collision")
+  void SetCollisionDisabled();
+
+  /// @brief 启用碰撞（彻底开启碰撞），用于弹匣被丢弃后恢复阻挡玩家
+  UFUNCTION(BlueprintCallable, Category = "Collision")
+  void SetCollisionEnabled();
 
 protected:
   virtual void BeginPlay() override;

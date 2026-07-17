@@ -34,6 +34,11 @@ public:
   UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Reload")
   float DropLifeTime = 3.0f;
 
+  // @brief 设置弹匣类并初始化对象池（若已设置则覆盖原有类）
+  UFUNCTION(BlueprintCallable, Category = "Reload")
+  void
+  SetMagazineClassAndInitPool(TSubclassOf<AMagazineActor> NewMagazineClass);
+
   /// @brief 从池中取出一个弹匣并握在手上（附着到 HandSocket）
   /// @param MagClass 可选，若为空则使用 MagazineClass
   /// @return 成功返回弹匣指针，否则 nullptr
@@ -53,15 +58,16 @@ public:
   UFUNCTION(BlueprintPure, Category = "Reload")
   AMagazineActor *GetCurrentHandMag() const { return CurrentHandMag; }
 
+  /// @brief 从池中获取一个空闲弹匣，若池用尽则动态生成
+  UFUNCTION(BlueprintPure, Category = "Reload")
+  AMagazineActor *GetMagFromPool();
+
 protected:
   virtual void BeginPlay() override;
   virtual void EndPlay(const EEndPlayReason::Type EndPlayReason) override;
 
   // 初始化对象池，生成 PoolSize 个弹匣并立即停用
   void InitPool();
-
-  // 从池中获取一个空闲弹匣，若池用尽则动态生成
-  AMagazineActor *GetMagFromPool();
 
   // 将弹匣归还池中（停用并清理相关定时器）
   void ReturnMagToPool(AMagazineActor *Mag);
