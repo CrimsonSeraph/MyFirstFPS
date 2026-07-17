@@ -16,7 +16,7 @@ public:
 
   // 对象池初始大小
   UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "ObjectPool")
-  int32 PoolSize = 10;
+  int32 PoolSize = 3;
 
   // 弹匣 Actor 的类（用于生成）
   UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "ObjectPool")
@@ -34,31 +34,40 @@ public:
   UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Reload")
   float DropLifeTime = 3.0f;
 
-  // @brief 设置弹匣类并初始化对象池（若已设置则覆盖原有类）
+  // 当前武器引用（必须由外部设置），用于 TransferMagToWeapon 查找武器插槽
+  UPROPERTY(BlueprintReadWrite, Category = "Reload")
+  AActor *CurrentWeaponActor = nullptr;
+
+  /// @brief 设置弹匣类并初始化对象池（若已设置则清空旧池并重新生成）
   UFUNCTION(BlueprintCallable, Category = "Reload")
   void
   SetMagazineClassAndInitPool(TSubclassOf<AMagazineActor> NewMagazineClass);
 
-  /// @brief 从池中取出一个弹匣并握在手上（附着到 HandSocket）
+  /// @brief 从池中取出一个弹匣并握在手上（附着到角色 HandSocket）
   /// @param MagClass 可选，若为空则使用 MagazineClass
   /// @return 成功返回弹匣指针，否则 nullptr
   UFUNCTION(BlueprintCallable, Category = "Reload")
   AMagazineActor *
   SpawnAndGrabMag(TSubclassOf<AMagazineActor> MagClass = nullptr);
 
-  /// @brief 将手中弹匣转移到武器插槽（WeaponMagSocket），并禁用物理
+  /// @brief 将手中弹匣转移到当前武器插槽（WeaponMagSocket），并禁用物理
+  /// @return 被转移的弹匣指针，失败返回 nullptr
   UFUNCTION(BlueprintCallable, Category = "Reload")
-  void TransferMagToWeapon();
+  AMagazineActor *TransferMagToWeapon();
 
   /// @brief 丢弃手中弹匣，启用物理，并在 DropLifeTime 后回收至池中
   UFUNCTION(BlueprintCallable, Category = "Reload")
   void DropCurrentMag();
 
+  /// @brief 丢弃指定的弹匣（启用物理，并启动定时器回收），可用于枪上旧弹匣
+  UFUNCTION(BlueprintCallable, Category = "Reload")
+  void DropMagazine(AMagazineActor *Mag);
+
   /// @brief 获取当前握持的弹匣（仅读）
   UFUNCTION(BlueprintPure, Category = "Reload")
   AMagazineActor *GetCurrentHandMag() const { return CurrentHandMag; }
 
-  /// @brief 从池中获取一个空闲弹匣，若池用尽则动态生成
+  /// @brief 从池中获取一个空闲弹匣，若池用尽则动态生成（通常内部使用）
   UFUNCTION(BlueprintPure, Category = "Reload")
   AMagazineActor *GetMagFromPool();
 
@@ -78,7 +87,7 @@ protected:
 private:
   // 当前手中握持的弹匣
   UPROPERTY()
-  AMagazineActor *CurrentHandMag;
+  AMagazineActor *CurrentHandMag = nullptr;
 
   // 对象池数组
   UPROPERTY()

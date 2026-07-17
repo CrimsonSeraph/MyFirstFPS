@@ -50,7 +50,7 @@ UReloadComponent::SpawnAndGrabMag(TSubclassOf<AMagazineActor> MagClass) {
     return nullptr;
   }
 
-  // 查找拥有者的骨骼网格体组件，并附着到手部插槽
+  // 查找角色的骨骼网格体组件（手部插槽在角色身上）
   USkeletalMeshComponent *SkeletalMesh =
       Owner->FindComponentByClass<USkeletalMeshComponent>();
   if (SkeletalMesh && SkeletalMesh->DoesSocketExist(HandSocketName)) {
@@ -58,7 +58,8 @@ UReloadComponent::SpawnAndGrabMag(TSubclassOf<AMagazineActor> MagClass) {
         SkeletalMesh, FAttachmentTransformRules::SnapToTargetIncludingScale,
         HandSocketName);
   } else {
-    UE_LOG(LogTemp, Error, TEXT("ReloadComponent: Hand socket '%s' not found!"),
+    UE_LOG(LogTemp, Error,
+           TEXT("ReloadComponent: Hand socket '%s' not found on character!"),
            *HandSocketName.ToString());
     ReturnMagToPool(NewMag);
     return nullptr;
@@ -69,25 +70,27 @@ UReloadComponent::SpawnAndGrabMag(TSubclassOf<AMagazineActor> MagClass) {
 }
 
 // 将手中弹匣转移到武器插槽（结束换弹过程）
-void UReloadComponent::TransferMagToWeapon() {
+AMagazineActor *UReloadComponent::TransferMagToWeapon() {
   if (!IsValid(CurrentHandMag)) {
     UE_LOG(LogTemp, Warning,
            TEXT("ReloadComponent: No magazine in hand to transfer."));
-    return;
+    return nullptr;
   }
 
-  AActor *Owner = GetOwner();
-  if (!Owner)
-    return;
+  if (!CurrentWeaponActor) {
+    UE_LOG(LogTemp, Error,
+           TEXT("ReloadComponent: CurrentWeaponActor is not set! Cannot "
+                "transfer magazine."));
+    return nullptr;
+  }
 
-  // 查找拥有者身上的骨骼网格体组件（排除根组件，找到武器骨骼）
+  // 在武器 Actor 上查找骨骼网格体组件，并查找 WeaponMagSocketName 插槽
   USkeletalMeshComponent *WeaponMesh = nullptr;
   TArray<USceneComponent *> Components;
-  Owner->GetComponents<USceneComponent>(Components);
+  CurrentWeaponActor->GetComponents<USceneComponent>(Components);
   for (USceneComponent *Comp : Components) {
     if (USkeletalMeshComponent *Skel = Cast<USkeletalMeshComponent>(Comp)) {
-      if (Skel != Owner->GetRootComponent() &&
-          Skel->DoesSocketExist(WeaponMagSocketName)) {
+      if (Skel->DoesSocketExist(WeaponMagSocketName)) {
         WeaponMesh = Skel;
         break;
       }
@@ -95,52 +98,79 @@ void UReloadComponent::TransferMagToWeapon() {
   }
 
   if (!WeaponMesh) {
-    UE_LOG(LogTemp, Error,
-           TEXT("ReloadComponent: Weapon socket '%s' not found!"),
-           *WeaponMagSocketName.ToString());
-    return;
+    UE_LOG(
+        LogTemp, Error,
+        TEXT(
+            "ReloadComponent: Weapon socket '%s' not found on current weapon!"),
+        *WeaponMagSocketName.ToString());
+    return nullptr;
   }
 
-  // 附着到武器插槽，并禁用物理（固定）
+  // 附着到武器插槽，并禁用物理
   CurrentHandMag->AttachToComponent(
       WeaponMesh, FAttachmentTransformRules::SnapToTargetIncludingScale,
       WeaponMagSocketName);
 
   CurrentHandMag->DisablePhysics();
 
-  // 清空手中引用
+  AMagazineActor *TransferredMag = CurrentHandMag;
   CurrentHandMag = nullptr;
+  return TransferredMag;
 }
 
 // 丢弃手中弹匣：启用物理，并启动定时器以便后续回收
 void UReloadComponent::DropCurrentMag() {
-  if (!IsValid(CurrentHandMag))
+  if (IsValid(CurrentHandMag)) {
+    DropMagazine(CurrentHandMag);
+  }
+}
+
+void UReloadComponent::DropMagazine(AMagazineActor *Mag) {
+  if (!IsValid(Mag))
     return;
 
-  CurrentHandMag->EnablePhysics();
+  // 检查弹匣状态
+  UE_LOG(LogTemp, Warning, TEXT("DropMagazine: %s, IsHidden=%d, IsAttached=%d"),
+         *Mag->GetName(), Mag->IsHidden(),
+         Mag->GetAttachParentActor() != nullptr);
 
-  // 使用弱指针防止弹匣被销毁后回调访问野指针
-  TWeakObjectPtr<AMagazineActor> WeakMag = CurrentHandMag;
+  // 如果丢弃的是当前手中的弹匣，则清空引用
+  if (CurrentHandMag == Mag) {
+    CurrentHandMag = nullptr;
+  }
+
+  // 解除附着
+  Mag->DetachFromActor(FDetachmentTransformRules::KeepWorldTransform);
+
+  // 确保 Actor 可见
+  Mag->SetActorHiddenInGame(false);
+  Mag->MeshComponent->SetVisibility(true);
+
+  Mag->EnablePhysics(); // 启用物理和碰撞
+
+  // 启动定时器回收
+  TWeakObjectPtr<AMagazineActor> WeakMag = Mag;
   if (GetWorld()) {
     FTimerHandle TimerHandle;
     GetWorld()->GetTimerManager().SetTimer(
         TimerHandle,
         [this, WeakMag]() {
-          if (AMagazineActor *Mag = WeakMag.Get()) {
-            OnDropTimerFinished(Mag);
+          if (AMagazineActor *M = WeakMag.Get()) {
+            ReturnMagToPool(M);
           }
         },
         DropLifeTime, false);
-    DropTimerHandles.Add(CurrentHandMag, TimerHandle);
+    DropTimerHandles.Add(Mag, TimerHandle);
   }
-
-  CurrentHandMag = nullptr;
 }
 
 // 从池中查找已停用的弹匣，如果无可用则动态生成一个
 AMagazineActor *UReloadComponent::GetMagFromPool() {
   for (AMagazineActor *Mag : MagazinePool) {
     if (IsValid(Mag) && Mag->IsHidden()) {
+
+      UE_LOG(LogTemp, Log, TEXT("GetMagFromPool: Reusing %s"), *Mag->GetName());
+
       Mag->Activate();
       return Mag;
     }
@@ -156,6 +186,7 @@ AMagazineActor *UReloadComponent::GetMagFromPool() {
       MagazineClass, FVector::ZeroVector, FRotator::ZeroRotator, SpawnParams);
   if (IsValid(NewMag)) {
     MagazinePool.Add(NewMag);
+    NewMag->Activate();
   }
   return NewMag;
 }
@@ -165,7 +196,8 @@ void UReloadComponent::BeginPlay() {
 
   if (!MagazineClass) {
     UE_LOG(LogTemp, Warning,
-           TEXT("ReloadComponent: MagazineClass is not set!"));
+           TEXT("ReloadComponent: MagazineClass is not set! Please set it or "
+                "call SetMagazineClassAndInitPool later."));
   } else {
     InitPool(); // 生成初始池
   }
@@ -215,6 +247,8 @@ void UReloadComponent::InitPool() {
 void UReloadComponent::ReturnMagToPool(AMagazineActor *Mag) {
   if (!IsValid(Mag))
     return;
+
+  UE_LOG(LogTemp, Log, TEXT("ReturnMagToPool: %s"), *Mag->GetName());
 
   Mag->Deactivate();
 

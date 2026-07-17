@@ -34,14 +34,19 @@ public:
   UFUNCTION(BlueprintCallable, Category = "Physics")
   void DisablePhysics();
 
-  /// @brief 禁用碰撞（彻底关闭碰撞），用于弹匣被拾取后避免阻挡玩家
-  UFUNCTION(BlueprintCallable, Category = "Collision")
-  void SetCollisionDisabled();
-
   /// @brief 启用碰撞（彻底开启碰撞），用于弹匣被丢弃后恢复阻挡玩家
   UFUNCTION(BlueprintCallable, Category = "Collision")
   void SetCollisionEnabled();
 
+  /// @brief 禁用碰撞（彻底关闭碰撞），用于弹匣被拾取后避免阻挡玩家
+  UFUNCTION(BlueprintCallable, Category = "Collision")
+  void SetCollisionDisabled();
+
 protected:
   virtual void BeginPlay() override;
+
+private:
+  // 内部禁用物理与碰撞的核心函数
+  void SetPhysicsDisabledInternal(bool bDetachFromActor,
+                                  bool bDestroyConstraints);
 };

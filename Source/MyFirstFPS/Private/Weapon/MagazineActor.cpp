@@ -1,4 +1,5 @@
 #include "Weapon/MagazineActor.h"
+
 #include "Components/PrimitiveComponent.h"
 #include "Components/StaticMeshComponent.h"
 #include "PhysicsEngine/BodyInstance.h"
@@ -11,13 +12,6 @@ AMagazineActor::AMagazineActor() {
       CreateDefaultSubobject<UStaticMeshComponent>(TEXT("MeshComponent"));
   RootComponent = MeshComponent;
 
-  // 初始状态：无碰撞，隐藏
-  MeshComponent->SetCollisionEnabled(ECollisionEnabled::NoCollision);
-  MeshComponent->SetCollisionResponseToAllChannels(ECR_Ignore);
-  MeshComponent->SetSimulatePhysics(false);
-  MeshComponent->SetHiddenInGame(true);
-  MeshComponent->SetVisibility(false);
-
   // 禁用导航影响（避免角色移动组件扫描到）
   MeshComponent->SetCanEverAffectNavigation(false);
 }
@@ -27,8 +21,8 @@ void AMagazineActor::Activate() {
   SetActorHiddenInGame(false);
   MeshComponent->SetVisibility(true);
 
-  // 彻底关闭碰撞（包括解除附着和销毁物理）
-  SetCollisionDisabled();
+  // 禁用物理但保持附着
+  DisablePhysics();
 }
 
 // 停用
@@ -36,40 +30,51 @@ void AMagazineActor::Deactivate() {
   SetActorHiddenInGame(true);
   MeshComponent->SetVisibility(false);
 
+  // 归还池时，彻底解除附着并销毁约束
   SetCollisionDisabled();
 }
 
 // 启用物理
 void AMagazineActor::EnablePhysics() {
+  // 显示弹匣
   SetActorHiddenInGame(false);
   MeshComponent->SetVisibility(true);
+
+  // 解除附着
+  DetachFromActor(FDetachmentTransformRules::KeepWorldTransform);
 
   TArray<UPrimitiveComponent *> Prims;
   GetComponents<UPrimitiveComponent>(Prims);
   for (UPrimitiveComponent *P : Prims) {
-    // 启用碰撞
+    if (!P)
+      continue;
+
+    // 设置碰撞模式
     P->SetCollisionEnabled(ECollisionEnabled::QueryAndPhysics);
-    // 对 Pawn 忽略
+    P->SetCollisionResponseToAllChannels(ECR_Block);
     P->SetCollisionResponseToChannel(ECC_Pawn, ECR_Ignore);
     P->SetCollisionResponseToChannel(ECC_Vehicle, ECR_Ignore);
-    // 对世界保留阻挡
-    P->SetCollisionResponseToChannel(ECC_WorldStatic, ECR_Block);
-    P->SetCollisionResponseToChannel(ECC_WorldDynamic, ECR_Block);
-    P->SetCollisionResponseToChannel(ECC_PhysicsBody, ECR_Block);
 
-    // 只有主网格体模拟物理
-    if (P == MeshComponent) {
-      P->SetSimulatePhysics(true);
-    } else {
-      P->SetSimulatePhysics(false);
-    }
+    // 显式指定碰撞预设
+    P->SetCollisionProfileName(TEXT("BlockAllDynamic"));
 
-    // 恢复导航影响
+    // 重力设置
+    P->SetEnableGravity(true);
+
+    // 导航和重叠
     P->SetCanEverAffectNavigation(true);
+    P->SetGenerateOverlapEvents(true);
+    P->SetComponentTickEnabled(true);
 
-    // 重建物理状态
+    // 重建物理体
     P->RecreatePhysicsState();
   }
+
+  //  启用物理模拟
+  MeshComponent->SetSimulatePhysics(true);
+  MeshComponent->WakeRigidBody();
+
+  // 全局 Actor 碰撞开启
   SetActorEnableCollision(true);
 
   // 施加冲量
@@ -77,52 +82,8 @@ void AMagazineActor::EnablePhysics() {
 }
 
 // 禁用物理
-void AMagazineActor::DisablePhysics() { SetCollisionDisabled(); }
-
-// 彻底关闭碰撞
-void AMagazineActor::SetCollisionDisabled() {
-  // 解除附着
-  DetachFromActor(FDetachmentTransformRules::KeepWorldTransform);
-
-  // 遍历所有 Primitive 组件
-  TArray<UPrimitiveComponent *> Prims;
-  GetComponents<UPrimitiveComponent>(Prims);
-  for (UPrimitiveComponent *P : Prims) {
-    if (!P)
-      continue;
-
-    // 停止物理模拟并强制睡眠
-    P->SetSimulatePhysics(false);
-    P->PutRigidBodyToSleep();
-
-    // 禁用碰撞标志
-    P->SetCollisionEnabled(ECollisionEnabled::NoCollision);
-    P->SetCollisionResponseToAllChannels(ECR_Ignore);
-    P->SetCollisionProfileName(TEXT("NoCollision"));
-
-    // 禁用导航影响
-    P->SetCanEverAffectNavigation(false);
-
-    // 彻底销毁物理状态
-    P->DestroyPhysicsState();
-
-    //  禁止生成重叠事件
-    P->SetGenerateOverlapEvents(false);
-  }
-
-  // 全局 Actor 级别禁用碰撞
-  SetActorEnableCollision(false);
-
-  // 禁用组件 Tick
-  MeshComponent->SetComponentTickEnabled(false);
-
-  // 如果有物理约束，也一并销毁
-  UPhysicsConstraintComponent *Constraint =
-      FindComponentByClass<UPhysicsConstraintComponent>();
-  if (Constraint) {
-    Constraint->BreakConstraint();
-    Constraint->DestroyComponent();
-  }
+void AMagazineActor::DisablePhysics() {
+  SetPhysicsDisabledInternal(false, false);
 }
 
 // 恢复碰撞
@@ -151,4 +112,58 @@ void AMagazineActor::SetCollisionEnabled() {
   }
 }
 
+// 彻底关闭碰撞
+void AMagazineActor::SetCollisionDisabled() {
+  SetPhysicsDisabledInternal(true, true);
+}
+
 void AMagazineActor::BeginPlay() { Super::BeginPlay(); }
+
+// 辅助函数
+void AMagazineActor::SetPhysicsDisabledInternal(bool bDetachFromActor,
+                                                bool bDestroyConstraints) {
+  // 解除附着
+  if (bDetachFromActor) {
+    DetachFromActor(FDetachmentTransformRules::KeepWorldTransform);
+  }
+
+  // 遍历所有 Primitive 组件统一禁用
+  TArray<UPrimitiveComponent *> Prims;
+  GetComponents<UPrimitiveComponent>(Prims);
+  for (UPrimitiveComponent *P : Prims) {
+    if (!P)
+      continue;
+
+    // 停止物理模拟并强制睡眠
+    P->SetSimulatePhysics(false);
+    P->PutRigidBodyToSleep();
+
+    // 彻底禁用碰撞
+    P->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+    P->SetCollisionResponseToAllChannels(ECR_Ignore);
+    P->SetCollisionProfileName(TEXT("NoCollision"));
+
+    // 禁用导航影响与重叠事件
+    P->SetCanEverAffectNavigation(false);
+    P->SetGenerateOverlapEvents(false);
+
+    // 销毁物理状态
+    P->DestroyPhysicsState();
+
+    // 禁用组件 Tick
+    P->SetComponentTickEnabled(false);
+  }
+
+  // 全局 Actor 碰撞开关
+  SetActorEnableCollision(false);
+
+  // 销毁物理约束
+  if (bDestroyConstraints) {
+    UPhysicsConstraintComponent *Constraint =
+        FindComponentByClass<UPhysicsConstraintComponent>();
+    if (Constraint) {
+      Constraint->BreakConstraint();
+      Constraint->DestroyComponent();
+    }
+  }
+}
