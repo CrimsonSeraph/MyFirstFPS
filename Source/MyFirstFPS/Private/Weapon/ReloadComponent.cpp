@@ -237,6 +237,15 @@ void UReloadComponent::InitPool() {
     AMagazineActor *NewMag = GetWorld()->SpawnActor<AMagazineActor>(
         MagazineClass, FVector::ZeroVector, FRotator::ZeroRotator, SpawnParams);
     if (IsValid(NewMag)) {
+      // 检查关键组件
+      if (NewMag->GetMeshComponent() == nullptr) {
+        UE_LOG(LogTemp, Error,
+               TEXT("Spawned Magazine from class %s has NO Mesh! Check "
+                    "Blueprint serialization."),
+               *MagazineClass->GetName());
+        NewMag->Destroy();
+        return;
+      }
       NewMag->Deactivate();
       MagazinePool.Add(NewMag);
     }

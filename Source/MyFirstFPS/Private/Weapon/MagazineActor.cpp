@@ -9,7 +9,7 @@ AMagazineActor::AMagazineActor() {
   PrimaryActorTick.bCanEverTick = false;
 
   MeshComponent =
-      CreateDefaultSubobject<UStaticMeshComponent>(TEXT("MeshComponent"));
+      CreateDefaultSubobject<UStaticMeshComponent>(TEXT("MainMesh"));
   RootComponent = MeshComponent;
 
   // 禁用导航影响（避免角色移动组件扫描到）
@@ -18,6 +18,13 @@ AMagazineActor::AMagazineActor() {
 
 // 激活
 void AMagazineActor::Activate() {
+  if (!MeshComponent) {
+    UE_LOG(LogTemp, Warning,
+           TEXT("MagazineActor %s has NULL MeshComponent in Deactivate!"),
+           *GetName());
+    return;
+  }
+
   SetActorHiddenInGame(false);
   MeshComponent->SetVisibility(true);
 
@@ -27,6 +34,13 @@ void AMagazineActor::Activate() {
 
 // 停用
 void AMagazineActor::Deactivate() {
+  if (!MeshComponent) {
+    UE_LOG(LogTemp, Warning,
+           TEXT("MagazineActor %s has NULL MeshComponent in Deactivate!"),
+           *GetName());
+    return;
+  }
+
   SetActorHiddenInGame(true);
   MeshComponent->SetVisibility(false);
 
@@ -36,6 +50,13 @@ void AMagazineActor::Deactivate() {
 
 // 启用物理
 void AMagazineActor::EnablePhysics() {
+  if (!MeshComponent) {
+    UE_LOG(LogTemp, Warning,
+           TEXT("MagazineActor %s has NULL MeshComponent in Deactivate!"),
+           *GetName());
+    return;
+  }
+
   // 显示弹匣
   SetActorHiddenInGame(false);
   MeshComponent->SetVisibility(true);

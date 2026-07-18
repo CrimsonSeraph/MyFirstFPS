@@ -15,8 +15,9 @@ public:
   AMagazineActor();
 
   // 弹匣的静态网格体组件，作为根组件
-  UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Components")
-  UStaticMeshComponent *MeshComponent;
+  UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Components",
+            meta = (AllowPrivateAccess = "true"))
+  TObjectPtr<UStaticMeshComponent> MeshComponent;
 
   /// @brief 从池中取出时调用，显示弹匣并关闭物理模拟（默认置于手中或插槽中）
   UFUNCTION(BlueprintCallable, Category = "Pool")
