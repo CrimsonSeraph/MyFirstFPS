@@ -74,11 +74,11 @@ Plugins/**/Intermediate/*
 # Cache files for the editor to use
 DerivedDataCache/*
 
-# FPS 资产
+# 其他资产
 XL_FPSPack/
 ShotSystem/
 Decals/
 Fonts/
-.blend[0-9]
 MyFirstFPS.code-workspace
 .vscode/
+exports/
